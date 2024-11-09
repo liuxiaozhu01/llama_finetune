@@ -44,7 +44,7 @@ class TrainDatasetTonkenizePreprocessor:
         
         self.preprocessors = {
             "alpaca": AlpacaPreprocessor(tokenizer, max_length),
-            # "winogrande": WinograndePreprocessor(tokenizer, max_length),
+            "winogrande": WinograndePreprocessor(tokenizer, max_length),
         }
         
     def __call__(self, datasets: Dict[str, Dataset]) -> Dataset :
@@ -138,4 +138,41 @@ class AlpacaPreprocessor:
         
         return dict(input_ids=input_ids, labels=labels)
         
+class WinograndePreprocessor:
+    def __init__(self, tokenizer: LlamaTokenizer, max_length: int):
+        self.tokenizer = tokenizer
+        self.max_length = max_length
+
+    def preprocess(self, examples: List[Dict[str, Any]]) -> Dict[str, List[int]]:
+        sentences = examples["sentence"]
+        option1s = examples["option1"]
+        option2s = examples["option2"]
+        answers = examples["answer"]
+        
+        sources, targets = [], []
+        for sentence, option1, option2, answer in zip(sentences, option1s, option2s, answers):
+            answer_text = option1 if answer == 1 else option2
+
+            option_idx = sentence.index("_")
+            """ 1. same as 'sangHa0411/Llama-Instruction-Tuning' """
+            # source_text = sentence[:option_idx]
+            # target_text = answer_text + sentence[option_idx+1:]
+            """ 2. more similar to lm_eval """
+            source_text = sentence[:option_idx] + answer_text
+            target_text = sentence[option_idx+1:]
+            
+            sources.append(f"Sentence: {source_text}")
+            targets.append(target_text)     # is eos_token needed?
+            
+        examples_combined = [s + t for s, t in zip(sources, targets)]
+        examples_tokenized = _tokenize_fn(examples_combined, self.tokenizer)
+        sources_tokenized = _tokenize_fn(sources, self.tokenizer)
+        
+        input_ids = examples_tokenized["input_ids"]
+        labels = copy.deepcopy(input_ids)
+        
+        for label, source_len in zip(labels, sources_tokenized["input_ids_lens"]):
+            label[:source_len] = IGNORE_INDEX
+        
+        return dict(input_ids=input_ids, labels=labels)
         
